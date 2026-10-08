@@ -16,7 +16,11 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
 
 
-def get_llm(provider: str = None, temperature: float = 0.0):
+def get_llm(
+    provider: str = None,
+    temperature: float = 0.0,
+    max_tokens: int = None,
+):
     """
     Trả về BaseChatModel tương ứng với provider được chọn.
 
@@ -24,6 +28,8 @@ def get_llm(provider: str = None, temperature: float = 0.0):
         provider    : "openai" | "gemini" | "anthropic" | "ollama" | "openrouter"
                       Mặc định: đọc PROVIDER từ .env (config.PROVIDER)
         temperature : độ ngẫu nhiên (0.0 = tất định, 1.0 = sáng tạo)
+        max_tokens  : giới hạn output tùy chọn; OpenRouter mặc định dùng
+                      OPENROUTER_MAX_TOKENS từ .env
 
     Returns:
         BaseChatModel instance sẵn sàng sử dụng
@@ -41,6 +47,8 @@ def get_llm(provider: str = None, temperature: float = 0.0):
             "api_key": config.OPENAI_API_KEY,
             "temperature": temperature,
         }
+        if max_tokens is not None:
+            kwargs["max_tokens"] = max_tokens
         if config.OPENAI_BASE_URL:
             kwargs["base_url"] = config.OPENAI_BASE_URL
         return ChatOpenAI(**kwargs)
@@ -77,6 +85,7 @@ def get_llm(provider: str = None, temperature: float = 0.0):
             api_key=config.OPENROUTER_API_KEY,
             base_url=config.OPENROUTER_BASE_URL,
             temperature=temperature,
+            max_tokens=max_tokens or config.OPENROUTER_MAX_TOKENS,
         )
 
     else:
@@ -92,7 +101,7 @@ def get_embeddings(provider: str = None):
 
     Lưu ý quan trọng:
         - Anthropic KHÔNG có Embeddings API → tự động fallback về OpenAI embeddings
-        - OpenRouter cũng dùng OpenAI embeddings (không có API embeddings riêng)
+        - OpenRouter dùng Embeddings API tương thích OpenAI của OpenRouter
         - Ollama cần model embedding riêng (mặc định: nomic-embed-text)
           Cài đặt: ollama pull nomic-embed-text
 
@@ -105,7 +114,7 @@ def get_embeddings(provider: str = None):
     """
     provider = (provider or config.PROVIDER).lower()
 
-    if provider in ("openai", "openrouter"):
+    if provider == "openai":
         from langchain_openai import OpenAIEmbeddings
         kwargs = {
             "model": config.OPENAI_EMBEDDING_MODEL,
@@ -114,6 +123,15 @@ def get_embeddings(provider: str = None):
         if config.OPENAI_BASE_URL:
             kwargs["base_url"] = config.OPENAI_BASE_URL
         return OpenAIEmbeddings(**kwargs)
+
+    elif provider == "openrouter":
+        # OpenRouter exposes an OpenAI-compatible /embeddings endpoint.
+        from langchain_openai import OpenAIEmbeddings
+        return OpenAIEmbeddings(
+            model=config.OPENROUTER_EMBEDDING_MODEL,
+            api_key=config.OPENROUTER_API_KEY,
+            base_url=config.OPENROUTER_BASE_URL,
+        )
 
     elif provider == "gemini":
         from langchain_google_genai import GoogleGenerativeAIEmbeddings
